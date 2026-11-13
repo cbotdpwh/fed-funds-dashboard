@@ -27,19 +27,27 @@ jobs:
     timeout-minutes: 10
     steps:
       - name: Get the repository files
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
+      - name: Check the files are in the right place
+        run: |
+          missing=""
+          for f in build_dashboard.py template.html; do
+            [ -f "$f" ] || missing="$missing $f"
+          done
+          if [ -n "$missing" ]; then
+            echo "::error title=Files are in the wrong place::Not found at the top level of the repository:$missing. These files must sit next to the .github folder and README.md. If you uploaded the whole fed-funds-dashboard folder, open it on GitHub and move its contents up one level (or upload the files again from inside the folder)."
+            echo "Files currently in the repository:"
+            find . -path ./.git -prune -o -type f -print | head -40
+            exit 1
+          fi
 
       - name: Build dashboard from the Google Sheet
         env:
           SHEET_ID: ${{ secrets.SHEET_ID }}
           REGISTER_GID: ${{ vars.REGISTER_GID }}
           SOF_GID: ${{ vars.SOF_GID }}
-        run: python build_dashboard.py
+        run: python3 build_dashboard.py
 
       - name: Save the new dashboard
         run: |
@@ -48,7 +56,10 @@ jobs:
           git add docs/index.html docs/.nojekyll
           if git diff --cached --quiet; then
             echo "Nothing changed."
-          else
-            git commit -m "Dashboard update $(TZ=Asia/Manila date '+%d %b %Y %H:%M') PHT"
-            git push
+            exit 0
+          fi
+          git commit -m "Dashboard update $(TZ=Asia/Manila date '+%d %b %Y %H:%M') PHT"
+          if ! git push; then
+            echo "::error title=GitHub blocked saving the dashboard::Go to Settings > Actions > General > Workflow permissions, choose 'Read and write permissions', click Save, then run again."
+            exit 1
           fi
