@@ -316,7 +316,7 @@ footer{max-width:var(--content-max);margin:0 auto;padding:0 var(--space-8) var(-
       <div class="overline" id="overline">FY 2026</div>
       <h1>Status of funds for floating equipment</h1>
       <span class="dpwh-rule" aria-hidden="true"></span>
-      <p class="lede">Maintenance and operations budget for DPWH dredgers, amphibious excavators and support vessels. Each request is one fund evaluation released by the Floating Equipment Division.</p>
+      <p class="lede">Maintenance and operations budget for DPWH dredgers and support vessels.</p>
     </div>
     <div class="refresh" id="refresh"></div>
   </div>
@@ -348,10 +348,6 @@ footer{max-width:var(--content-max);margin:0 auto;padding:0 var(--space-8) var(-
       <div>
         <span class="label" id="lbl-type">Request type</span>
         <div class="chips" role="group" aria-labelledby="lbl-type" id="type-chips"></div>
-      </div>
-      <div>
-        <span class="label" id="lbl-prog">Program</span>
-        <div class="chips" role="group" aria-labelledby="lbl-prog" id="prog-chips"></div>
       </div>
       <div class="field">
         <label class="label" for="region-sel">Region</label>
@@ -432,9 +428,10 @@ footer{max-width:var(--content-max);margin:0 auto;padding:0 var(--space-8) var(-
     <div>
       <h3>How requests are grouped</h3>
       <ul>
-        <li><strong>Dredging by administration</strong>: fund types that pay to run the equipment with DPWH's own crew (Operational, Labor, OSH, Bunkhouse, Office Supplies).</li>
+        <li>Each request belongs to exactly one type.</li>
+        <li><strong>Oplan Kontra Baha (OKB)</strong>: the request's remarks mention Oplan Kontra Baha or OKB, whatever its fund type.</li>
+        <li><strong>Dredging by administration</strong>: all other requests with fund types that pay to run the equipment with DPWH's own crew (Operational, Labor, OSH, Bunkhouse, Office Supplies).</li>
         <li><strong>Preventive</strong>, <strong>corrective</strong>, <strong>dry docking and repair</strong>, <strong>accessories</strong> and <strong>mobilization</strong> follow the Fund Type column.</li>
-        <li><strong>OKB</strong>: the request's remarks mention Oplan Kontra Baha or OKB. OKB cuts across all request types.</li>
       </ul>
     </div>
     <div>
@@ -465,7 +462,8 @@ footer{max-width:var(--content-max);margin:0 auto;padding:0 var(--space-8) var(-
     return r;
   });
 
-  var TYPE_ORDER = ['Dredging by administration', 'Preventive maintenance', 'Corrective maintenance',
+  var OKB_TYPE = 'Oplan Kontra Baha (OKB)';
+  var TYPE_ORDER = ['Dredging by administration', OKB_TYPE, 'Preventive maintenance', 'Corrective maintenance',
     'Dry docking and repair', 'Accessories', 'Mobilization', 'Other'];
   var REGION_ORDER = ['NCR', 'CAR', 'I', 'II', 'III', 'IV-A', 'MIMAROPA', 'V', 'VI', 'VII', 'VIII', 'IX', 'X', 'XI', 'XII', 'XIII', 'NIR'];
   var STATUS = {
@@ -662,18 +660,17 @@ footer{max-width:var(--content-max);margin:0 auto;padding:0 var(--space-8) var(-
   }
 
   /* ---------------- Filter state ---------------- */
-  var state = { type: 'all', program: 'all', region: 'all', status: 'all', q: '', sortKey: 'date', sortDir: -1, showAll: false };
+  var state = { type: 'all', region: 'all', status: 'all', q: '', sortKey: 'date', sortDir: -1, showAll: false };
   var PAGE = 25;
 
   function passes(r, skip) {
     if (skip !== 'type' && state.type !== 'all' && r.type !== state.type) return false;
-    if (skip !== 'program' && state.program !== 'all' && (state.program === 'okb') !== !!r.okb) return false;
     if (skip !== 'region' && state.region !== 'all' && r.region !== state.region) return false;
     if (skip !== 'status' && state.status !== 'all' && r.status !== state.status) return false;
     return true;
   }
   function filtered(skip) { return RECORDS.filter(function (r) { return passes(r, skip); }); }
-  function anyFilter() { return state.type !== 'all' || state.program !== 'all' || state.region !== 'all' || state.status !== 'all'; }
+  function anyFilter() { return state.type !== 'all' || state.region !== 'all' || state.status !== 'all'; }
 
   function setFilter(key, value) {
     state[key] = state[key] === value ? 'all' : value;
@@ -684,13 +681,14 @@ footer{max-width:var(--content-max);margin:0 auto;padding:0 var(--space-8) var(-
   // Filters live in the address bar so a filtered view can be shared as a link
   function writeHash() {
     var p = new URLSearchParams();
-    ['type', 'program', 'region', 'status'].forEach(function (k) { if (state[k] !== 'all') p.set(k, state[k]); });
+    ['type', 'region', 'status'].forEach(function (k) { if (state[k] !== 'all') p.set(k, state[k]); });
     var h = p.toString();
     history.replaceState(null, '', h ? '#' + h : location.pathname + location.search);
   }
   function readHash() {
     var p = new URLSearchParams(location.hash.slice(1));
-    ['type', 'program', 'region', 'status'].forEach(function (k) { if (p.get(k)) state[k] = p.get(k); });
+    ['type', 'region', 'status'].forEach(function (k) { if (p.get(k)) state[k] = p.get(k); });
+    if (p.get('program') === 'okb' && !p.get('type')) state.type = OKB_TYPE; // links made before OKB became a type
   }
 
   /* ---------------- Filter controls ---------------- */
@@ -708,20 +706,11 @@ footer{max-width:var(--content-max);margin:0 auto;padding:0 var(--space-8) var(-
       chips.append(el('button', {
         type: 'button', class: 'chip', 'aria-pressed': String(state.type === c[0]),
         disabled: c[2] === 0 && state.type !== c[0] && c[0] !== 'all',
+        title: c[0] === OKB_TYPE ? 'Oplan Kontra Baha' : null,
+        'aria-label': c[1] + ', ' + plural(c[2], 'request', 'requests'),
         onclick: function () { state.type = c[0]; state.showAll = false; writeHash(); renderAll(); }
-      }, [c[1], el('span', { class: 'count num', text: nf0.format(c[2]) })]));
+      }, [c[0] === OKB_TYPE ? 'OKB' : c[1], el('span', { class: 'count num', 'aria-hidden': 'true', text: nf0.format(c[2]) })]));
     });
-
-    var pbase = filtered('program');
-    var prog = $('prog-chips'); prog.replaceChildren();
-    [['all', 'All', pbase.length], ['okb', 'OKB only', pbase.filter(function (r) { return r.okb; }).length], ['regular', 'Non-OKB', pbase.filter(function (r) { return !r.okb; }).length]]
-      .forEach(function (c) {
-        prog.append(el('button', {
-          type: 'button', class: 'chip', 'aria-pressed': String(state.program === c[0]),
-          title: c[0] === 'okb' ? 'Oplan Kontra Baha' : null,
-          onclick: function () { state.program = c[0]; state.showAll = false; writeHash(); renderAll(); }
-        }, [c[1], el('span', { class: 'count num', text: nf0.format(c[2]) })]));
-      });
 
     var rs = $('region-sel'); rs.replaceChildren(el('option', { value: 'all', text: 'All regions' }));
     regionsPresent.forEach(function (g) { rs.append(el('option', { value: g, text: regionName(g) })); });
@@ -736,15 +725,13 @@ footer{max-width:var(--content-max);margin:0 auto;padding:0 var(--space-8) var(-
   $('region-sel').addEventListener('change', function (e) { state.region = e.target.value; state.showAll = false; writeHash(); renderAll(); });
   $('status-sel').addEventListener('change', function (e) { state.status = e.target.value; state.showAll = false; writeHash(); renderAll(); });
   $('reset-btn').addEventListener('click', function () {
-    state.type = state.program = state.region = state.status = 'all'; state.showAll = false; writeHash(); renderAll();
+    state.type = state.region = state.status = 'all'; state.showAll = false; writeHash(); renderAll();
   });
 
   /* ---------------- Selection summary ---------------- */
   function describeSelection() {
     var parts = [];
     if (state.type !== 'all') parts.push(state.type);
-    if (state.program === 'okb') parts.push('OKB');
-    if (state.program === 'regular') parts.push('non-OKB');
     if (state.region !== 'all') parts.push(regionName(state.region));
     if (state.status !== 'all') parts.push(STATUS[state.status].label);
     return parts;
@@ -755,12 +742,12 @@ footer{max-width:var(--content-max);margin:0 auto;padding:0 var(--space-8) var(-
     var amt = sum(list);
     var appr = list.filter(function (r) { return r.status === 'approved'; });
     var proc = list.filter(function (r) { return r.status !== 'approved'; });
-    var okb = list.filter(function (r) { return r.okb; });
+    var regionCount = new Set(list.map(function (r) { return r.region; })).size;
     $('sel-desc').textContent = parts.length ? 'Filtered view' : 'Everything evaluated so far this year';
     $('s-amt').textContent = peso(amt);
     $('s-amt-sub').textContent = pctStr(pct(amt, USED)) + ' of all sub-allotments';
     $('s-count').textContent = nf0.format(list.length);
-    $('s-count-sub').textContent = list.length ? nf0.format(okb.length) + ' under OKB' : 'No matching requests';
+    $('s-count-sub').textContent = list.length ? 'Across ' + plural(regionCount, 'region', 'regions') : 'No matching requests';
     $('s-appr').textContent = peso(sum(appr));
     $('s-appr-sub').textContent = plural(appr.length, 'request', 'requests');
     $('s-proc').textContent = peso(sum(proc));
@@ -946,7 +933,6 @@ footer{max-width:var(--content-max);margin:0 auto;padding:0 var(--space-8) var(-
     }
     shown.forEach(function (r) {
       var typeCell = [el('span', { text: r.type }), ' '];
-      if (r.okb) typeCell.push(el('span', { class: 'tag', title: 'Oplan Kontra Baha', text: 'OKB' }));
       if (r.fund_type && r.fund_type.toLowerCase() !== r.type.toLowerCase()) typeCell.push(el('span', { class: 'sub', text: r.fund_type }));
       tb.append(el('tr', null, [
         el('td', { class: 'c-ref' }, [el('span', { class: 'code', text: r.ref })]),
@@ -972,9 +958,9 @@ footer{max-width:var(--content-max);margin:0 auto;padding:0 var(--space-8) var(-
 
   $('export-btn').addEventListener('click', function () {
     var rows = tableRows();
-    var head = ['Ref no', 'FED release date', 'Region', 'Implementing office', 'Equipment type', 'DPWH no', 'Request type', 'Fund type', 'OKB', 'Amount (PHP)', 'Status'];
+    var head = ['Ref no', 'FED release date', 'Region', 'Implementing office', 'Equipment type', 'DPWH no', 'Request type', 'Fund type', 'Amount (PHP)', 'Status'];
     var lines = [head].concat(rows.map(function (r) {
-      return [r.ref, r.date || '', r.region, r.office, r.equipment, r.dpwh_no, r.type, r.fund_type, r.okb ? 'Yes' : 'No', r.amount == null ? '' : r.amount.toFixed(2), STATUS[r.status].label];
+      return [r.ref, r.date || '', r.region, r.office, r.equipment, r.dpwh_no, r.type, r.fund_type, r.amount == null ? '' : r.amount.toFixed(2), STATUS[r.status].label];
     })).map(function (cols) {
       return cols.map(function (v) { v = String(v == null ? '' : v); return /[",\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; }).join(',');
     });
@@ -1001,7 +987,7 @@ footer{max-width:var(--content-max);margin:0 auto;padding:0 var(--space-8) var(-
   renderHead();
   renderAll();
   window.addEventListener('hashchange', function () {
-    state.type = state.program = state.region = state.status = 'all'; readHash(); renderAll();
+    state.type = state.region = state.status = 'all'; readHash(); renderAll();
   });
 })();
 </script>

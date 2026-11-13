@@ -67,11 +67,17 @@ remarks) stays private.
 ### Step 6 — Publish the page
 1. **Settings → Pages**.
 2. Under **Build and deployment**, Source: **Deploy from a branch**.
-3. Branch: **main**, folder: **/docs** → **Save**.
+3. Next to **Branch** there are **two** dropdowns. Set the first to **main** and the second
+   (it starts as **/ (root)**) to **/docs**, then click **Save**.
 4. After 1–2 minutes the page is live at
    `https://YOUR-GITHUB-USERNAME.github.io/fed-funds-dashboard/`
 
 That's the link to send to executives. It works on phones too.
+
+> **Two different addresses.** `github.com/YOUR-USERNAME/fed-funds-dashboard` is the *workshop*: it
+> always shows this README and the files. `YOUR-USERNAME.github.io/fed-funds-dashboard/` is the
+> *storefront*: the dashboard itself. Tip: on the repository's main page, click the ⚙ next to
+> **About** and tick **Use your GitHub Pages website** so the dashboard link shows at the top.
 
 ---
 
@@ -79,7 +85,7 @@ That's the link to send to executives. It works on phones too.
 
 - **You don't need to do anything.** Keep encoding in the Google Sheet as usual; the page refreshes by 7:00 AM daily.
 - **Need it refreshed right now?** Actions → Update dashboard → Run workflow.
-- **Share a filtered view.** Pick filters on the page (e.g. *OKB only* + *Region XI*) and copy the browser
+- **Share a filtered view.** Pick filters on the page (e.g. *Oplan Kontra Baha (OKB)* + *Region XI*) and copy the browser
   address; the link opens with the same filters.
 - **Export.** The *Export CSV* button downloads the requests currently shown in the table.
 
@@ -90,19 +96,22 @@ That's the link to send to executives. It works on phones too.
 | The header row that starts with `FED Release Date:` | Keep the column names as they are (order can change). |
 | One reference number like `FED-SAAreg2026-001` per request in **File Link:** | Keep using that numbering. Rows without one are ignored. |
 | The `TOTAL ALLOTMENT:` and `REMAINING BALANCE FOR 2026:` rows under the list | Keep notes and scratch rows **below** those two rows. |
-| `Oplan Kontra Baha` or `OKB` in **Remarks** | Type one of these in Remarks to tag a request as OKB. |
+| `Oplan Kontra Baha` or `OKB` in **Remarks** | Type one of these in Remarks to file a request under OKB. Leave them out of Remarks for non-OKB requests. |
 | Sharing set to *Anyone with the link* | Keep it on. *Viewer* is enough (safer than *Commenter*). |
 
 ### How requests are grouped
 
-| Request type on the dashboard | Fund Type in the sheet |
+Each request belongs to exactly **one** type. The rules are checked from top to bottom; the first match wins.
+
+| Request type on the dashboard | Rule |
 |---|---|
-| Dredging by administration | contains Operational, Labor, OSH, Bunkhouse or Office Supplies |
-| Preventive maintenance | Preventive Maintenance |
-| Corrective maintenance | Corrective Maintenance |
-| Dry docking and repair | Dry Docking and Repair (including *Supplemental*) |
-| Accessories | Accessories |
-| Mobilization | Mobilization (alone) |
+| Oplan Kontra Baha (OKB) | **Remarks** mention *Oplan Kontra Baha* or *OKB*, whatever the Fund Type (this includes OKB preventive maintenance) |
+| Preventive maintenance | Fund Type is Preventive Maintenance |
+| Corrective maintenance | Fund Type is Corrective Maintenance |
+| Dry docking and repair | Fund Type is Dry Docking and Repair (including *Supplemental*) |
+| Accessories | Fund Type is Accessories |
+| Dredging by administration | Fund Type contains Operational, Labor, OSH, Bunkhouse or Office Supplies |
+| Mobilization | Fund Type is Mobilization (alone) |
 | Other | anything else, e.g. Spoils Management, Shop Tools |
 
 Statuses come straight from the **Status** column: *approved. for SAA*, *released from BOE*,
@@ -123,6 +132,7 @@ To change any rule, edit `classify_request` or `classify_status` in `build_dashb
 |---|---|
 | Red ✗ in the Actions tab | Click the run. The **Annotations** box gives the reason in plain words (e.g. *The SHEET_ID secret is missing*, *Google did not share the sheet*, *A column was renamed*) and what to do. The page keeps showing the last good version. |
 | Yellow *Node.js 20 is deprecated* or blue *ubuntu-latest will migrate* notes | Information only from GitHub. They don't stop the build. |
+| The website shows this README instead of the dashboard | Pages is publishing the **/ (root)** folder. Change the second Branch dropdown to **/docs** (Step 6). The `index.html` at the top level also forwards visitors to `docs/`, so either setting works. Press **Ctrl+F5** to skip the old cached copy. |
 | *Files are in the wrong place* | `build_dashboard.py` and `template.html` must sit at the top level, next to `README.md` and `.github`, not inside a `fed-funds-dashboard` folder. |
 | *Sheet or tab not found* after re-creating a tab | Open the tab in Google Sheets, copy the number after `#gid=` in the address bar, and save it under Settings → Secrets and variables → Actions → **Variables** as `REGISTER_GID` (Regular-FY2026 tab) or `SOF_GID` (Status of Funding tab). |
 | The page says *Not refreshed for 1 day* | The daily run failed or was skipped; check the Actions tab and run it by hand. |

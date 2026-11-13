@@ -169,8 +169,14 @@ def region_label(text: str) -> str:
 # ----------------------------------------------------------------------------
 # Business rules (edit here if your definitions change)
 # ----------------------------------------------------------------------------
-def classify_request(fund_type: str) -> str:
-    """One request type per row. Order matters: the first match wins."""
+OKB_TYPE = "Oplan Kontra Baha (OKB)"
+
+
+def classify_request(fund_type: str, okb: bool = False) -> str:
+    """One request type per row. Order matters: the first match wins.
+    A request tagged OKB in Remarks is always OKB, whatever its fund type."""
+    if okb:
+        return OKB_TYPE
     f = (fund_type or "").lower()
     if "preventive" in f:
         return "Preventive maintenance"
@@ -300,6 +306,7 @@ def parse_register(csv_text: str) -> dict:
         fund_type = cell(row, "fund").strip()
         remarks = cell(row, "remarks")
         status_raw = cell(row, "status").strip()
+        is_okb = bool(OKB_PATTERN.search(remarks or ""))
         records.append({
             "ref": ref,
             "no": int(re.search(r"(\d+)$", ref).group(1)),
@@ -309,8 +316,8 @@ def parse_register(csv_text: str) -> dict:
             "dpwh_no": clean_spaces(cell(row, "dpwh_no")),
             "equipment": clean_spaces(cell(row, "equipment")),
             "fund_type": fund_type,
-            "type": classify_request(fund_type),
-            "okb": bool(OKB_PATTERN.search(remarks or "")),
+            "type": classify_request(fund_type, is_okb),
+            "okb": is_okb,
             "status": classify_status(status_raw),
             "status_raw": status_raw if classify_status(status_raw) == "other" else "",
             "amount": parse_amount(cell(row, "amount")),
