@@ -27,6 +27,7 @@ import os
 import re
 import sys
 import time
+import urllib.error
 import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
@@ -40,12 +41,45 @@ DEFAULT_SOF_GID = "1227294781"
 
 REF_PATTERN = re.compile(r"FED-SAA[\w]*-\d+", re.IGNORECASE)
 OKB_PATTERN = re.compile(r"oplan\s+kontra\s+baha|\bokb\b", re.IGNORECASE)
+IN_GITHUB = os.environ.get("GITHUB_ACTIONS") == "true"
+
+
+class BuildError(Exception):
+    """A problem we can explain in plain words."""
+
+    def __init__(self, title, message):
+        super().__init__(message)
+        self.title = title
+        self.message = message
+
+
+def report_error(title: str, message: str):
+    """Print the reason so it appears in GitHub's red 'Annotations' box, not only in the log."""
+    if IN_GITHUB:
+        safe = message.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+        print(f"::error title={title}::{safe}")
+    print(f"\nERROR - {title}\n{message}\n", file=sys.stderr)
+
+
+def clean_sheet_id(raw: str) -> str:
+    """Accepts the bare ID or a whole Google Sheets link pasted by mistake."""
+    raw = (raw or "").strip().strip("\"'").strip()
+    match = re.search(r"/d/([A-Za-z0-9_-]{20,})", raw)
+    sheet_id = match.group(1) if match else raw
+    if sheet_id and not re.fullmatch(r"[A-Za-z0-9_-]{20,}", sheet_id):
+        raise BuildError(
+            "The SHEET_ID secret looks wrong",
+            "It should be only the long code between /d/ and /edit in the Google Sheet link "
+            "(letters, numbers, - and _, no spaces). Update it under Settings > Secrets and "
+            "variables > Actions > Repository secrets > SHEET_ID (pencil icon).",
+        )
+    return sheet_id
 
 
 # ----------------------------------------------------------------------------
 # Download
 # ----------------------------------------------------------------------------
-def download_csv(sheet_id: str, gid: str) -> str:
+def download_csv(sheet_id: str, gid: str, tab_name: str) -> str:
     url = f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=csv&gid={gid}"
     last_error = None
     for attempt in range(1, 4):
@@ -54,16 +88,40 @@ def download_csv(sheet_id: str, gid: str) -> str:
             with urllib.request.urlopen(req, timeout=60) as resp:
                 body = resp.read().decode("utf-8-sig")
             if body.lstrip().lower().startswith("<!doctype html") or "<html" in body[:500].lower():
-                raise RuntimeError(
-                    "Google returned a web page instead of a CSV. Check that the sheet is "
-                    "shared as 'Anyone with the link' and that SHEET_ID / the tab ID are right."
+                raise BuildError(
+                    "Google did not share the sheet",
+                    "Google answered with a sign-in page instead of the data. In the Google Sheet, "
+                    "click Share > General access > 'Anyone with the link' (Viewer is enough), then run again.",
                 )
             return body
+        except BuildError:
+            raise
+        except urllib.error.HTTPError as exc:
+            last_error = exc
+            if exc.code == 404:
+                raise BuildError(
+                    "Sheet or tab not found",
+                    f"Google could not find the {tab_name} tab. Most likely the SHEET_ID secret has a typo "
+                    "(it must be only the code between /d/ and /edit). If the tab was deleted and re-created, "
+                    "its tab ID changed: open the tab, copy the number after #gid= in the address bar, and "
+                    "save it as a repository variable (Settings > Secrets and variables > Actions > Variables).",
+                ) from exc
+            if exc.code in (401, 403):
+                raise BuildError(
+                    "Google did not share the sheet",
+                    "Google refused access (error %d). In the Google Sheet, click Share > General access > "
+                    "'Anyone with the link' (Viewer is enough), then run again." % exc.code,
+                ) from exc
+            print(f"  download attempt {attempt} failed: {exc}", file=sys.stderr)
         except Exception as exc:  # noqa: BLE001 - retry any network hiccup
             last_error = exc
             print(f"  download attempt {attempt} failed: {exc}", file=sys.stderr)
-            time.sleep(5 * attempt)
-    raise SystemExit(f"Could not download tab gid={gid}: {last_error}")
+        time.sleep(5 * attempt)
+    raise BuildError(
+        "Could not reach Google Sheets",
+        f"Downloading the {tab_name} tab failed 3 times ({last_error}). This is usually temporary: "
+        "wait a few minutes, then Actions > Update dashboard > Run workflow.",
+    )
 
 
 # ----------------------------------------------------------------------------
@@ -173,7 +231,12 @@ def parse_register(csv_text: str) -> dict:
                 meta["fund"] = row[1].strip()
 
     if header_idx is None:
-        raise SystemExit("Could not find the header row that starts with 'FED Release Date'.")
+        raise BuildError(
+            "Sheet layout not recognised",
+            "Could not find the header row that starts with 'FED Release Date:' in the Regular-FY2026 tab. "
+            "Check that the first cell of the header row still says 'FED Release Date:'. If you renamed or "
+            "re-created the tab, its tab ID may have changed (see the setup guide, Troubleshooting).",
+        )
 
     headers = [norm_header(h) for h in rows[header_idx]]
 
@@ -197,7 +260,15 @@ def parse_register(csv_text: str) -> dict:
     }
     missing = [k for k, v in c.items() if v is None]
     if missing:
-        raise SystemExit(f"These columns were not found in the header row: {missing}")
+        names = {"date": "FED Release Date:", "region": "DPWH Region:", "office": "Implementing Office:",
+                 "dpwh_no": "DPWH No.:", "equipment": "Equipment Type:", "fund": "Fund Type:",
+                 "amount": "Allotment:", "ref": "File Link:", "remarks": "Remarks:", "status": "Status"}
+        raise BuildError(
+            "A column was renamed",
+            "These column headings were not found in the Regular-FY2026 tab: "
+            + ", ".join(names[m] for m in missing)
+            + ". Put the heading back exactly as written (the column order does not matter).",
+        )
 
     def cell(row, key):
         idx = c[key]
@@ -271,22 +342,38 @@ def main():
     ap.add_argument("--out", default=str(OUT_DIR / "index.html"))
     args = ap.parse_args()
 
-    sheet_id = os.environ.get("SHEET_ID", "").strip()
-    register_gid = os.environ.get("REGISTER_GID", "").strip() or DEFAULT_REGISTER_GID
-    sof_gid = os.environ.get("SOF_GID", "").strip() or DEFAULT_SOF_GID
+    sheet_id = clean_sheet_id(os.environ.get("SHEET_ID", ""))
+    register_gid = re.sub(r"\D", "", os.environ.get("REGISTER_GID", "")) or DEFAULT_REGISTER_GID
+    sof_gid = re.sub(r"\D", "", os.environ.get("SOF_GID", "")) or DEFAULT_SOF_GID
+
+    if not TEMPLATE.exists():
+        raise BuildError(
+            "template.html is missing",
+            "template.html must sit at the top level of the repository, next to build_dashboard.py. "
+            "Upload it again with Add file > Upload files.",
+        )
 
     if args.csv:
         register_csv = Path(args.csv).read_text(encoding="utf-8-sig")
     else:
         if not sheet_id:
-            raise SystemExit("SHEET_ID is not set. Add it under Settings > Secrets and variables > Actions.")
+            raise BuildError(
+                "The SHEET_ID secret is missing",
+                "GitHub could not find a repository secret named SHEET_ID. Go to Settings > Secrets and "
+                "variables > Actions, open the 'Secrets' tab (not 'Variables'), click 'New repository secret', "
+                "Name: SHEET_ID, Secret: the code between /d/ and /edit in the sheet link. Then run again.",
+            )
         print("Downloading Regular-FY2026 tab ...")
-        register_csv = download_csv(sheet_id, register_gid)
+        register_csv = download_csv(sheet_id, register_gid, "Regular-FY2026")
 
     parsed = parse_register(register_csv)
     records, meta = parsed["records"], parsed["meta"]
     if not records:
-        raise SystemExit("No request rows were found - stopping so the current dashboard stays online.")
+        raise BuildError(
+            "No requests found",
+            "The Regular-FY2026 tab was read, but no rows had a reference number like FED-SAAreg2026-001 "
+            "in the 'File Link:' column. The dashboard was left unchanged.",
+        )
 
     sof = {"admin_overhead": None, "sof_as_of": None}
     try:
@@ -294,9 +381,11 @@ def main():
             sof = parse_status_of_funding(Path(args.sof_csv).read_text(encoding="utf-8-sig"))
         elif sheet_id:
             print("Downloading Status of Funding tab ...")
-            sof = parse_status_of_funding(download_csv(sheet_id, sof_gid))
-    except SystemExit as exc:  # this tab is optional; never fail the build because of it
-        print(f"  (skipped Status of Funding: {exc})", file=sys.stderr)
+            sof = parse_status_of_funding(download_csv(sheet_id, sof_gid, "Status of Funding"))
+    except BuildError as exc:  # this tab is optional; never fail the build because of it
+        print(f"  (skipped Status of Funding: {exc.message})", file=sys.stderr)
+        if IN_GITHUB:
+            print(f"::warning title=Status of Funding tab skipped::{exc.message}")
 
     computed_total = round(sum(r["amount"] or 0 for r in records), 2)
     meta.update(sof)
@@ -310,7 +399,10 @@ def main():
 
     html = TEMPLATE.read_text(encoding="utf-8")
     if "__FED_DATA__" not in html:
-        raise SystemExit("template.html is missing the __FED_DATA__ placeholder.")
+        raise BuildError(
+            "template.html is damaged",
+            "template.html no longer contains the __FED_DATA__ placeholder. Upload the original template.html again.",
+        )
     html = html.replace("__FED_DATA__", data_json)
 
     out_path = Path(args.out)
@@ -330,4 +422,11 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except BuildError as err:
+        report_error(err.title, err.message)
+        sys.exit(1)
+    except Exception as err:  # noqa: BLE001 - anything unexpected still gets a readable message
+        report_error("Unexpected error", f"{type(err).__name__}: {err}. The dashboard was left unchanged.")
+        raise
